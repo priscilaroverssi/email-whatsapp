@@ -8,19 +8,80 @@ const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 // Carrega as credenciais do OAuth2 a partir das variáveis de ambiente
 function loadCredentials() {
   try {
+    console.log("🔧 Carregando credenciais...");
+    
     // Verifica se as variáveis de ambiente existem
-    if (!process.env.GOOGLE_CREDENTIALS || !process.env.GOOGLE_TOKEN) {
-      throw new Error("Variáveis GOOGLE_CREDENTIALS ou GOOGLE_TOKEN não encontradas");
+    if (!process.env.GOOGLE_CREDENTIALS) {
+      throw new Error("❌ Variável GOOGLE_CREDENTIALS não encontrada ou vazia");
+    }
+    
+    if (!process.env.GOOGLE_TOKEN) {
+      throw new Error("❌ Variável GOOGLE_TOKEN não encontrada ou vazia");
     }
 
-    // Remove possíveis caracteres inválidos que podem ter sido adicionados ao copiar/colar
-    const cleanCredentials = process.env.GOOGLE_CREDENTIALS.replace(/\\n/g, '').trim();
-    const cleanToken = process.env.GOOGLE_TOKEN.replace(/\\n/g, '').trim();
+    console.log("✓ Variáveis de ambiente encontradas");
+    console.log(`📝 GOOGLE_CREDENTIALS length: ${process.env.GOOGLE_CREDENTIALS.length}`);
+    console.log(`📝 GOOGLE_TOKEN length: ${process.env.GOOGLE_TOKEN.length}`);
 
-    const credentials = JSON.parse(cleanCredentials);
-    const token = JSON.parse(cleanToken);
+    // Remove possíveis caracteres inválidos e espaços extras
+    let cleanCredentials = process.env.GOOGLE_CREDENTIALS
+      .replace(/\\n/g, '\n')  // Corrige quebras de linha
+      .replace(/\\\"/g, '"')  // Corrige aspas escapadas
+      .trim();
+
+    let cleanToken = process.env.GOOGLE_TOKEN
+      .replace(/\\n/g, '\n')
+      .replace(/\\\"/g, '"')
+      .trim();
+
+    // Verifica se começa e termina com chaves/colchetes
+    if (!cleanCredentials.startsWith('{') || !cleanCredentials.endsWith('}')) {
+      console.log("⚠️ GOOGLE_CREDENTIALS não parece ser um JSON válido");
+      console.log("Primeiros 100 caracteres:", cleanCredentials.substring(0, 100));
+    }
+
+    if (!cleanToken.startsWith('{') || !cleanToken.endsWith('}')) {
+      console.log("⚠️ GOOGLE_TOKEN não parece ser um JSON válido");
+      console.log("Primeiros 100 caracteres:", cleanToken.substring(0, 100));
+    }
+
+    let credentials, token;
+    
+    try {
+      credentials = JSON.parse(cleanCredentials);
+      console.log("✓ GOOGLE_CREDENTIALS parsed successfully");
+    } catch (parseError) {
+      console.error("❌ Erro ao fazer parse de GOOGLE_CREDENTIALS:");
+      console.error("Erro:", parseError.message);
+      console.error("Conteúdo (primeiros 200 chars):", cleanCredentials.substring(0, 200));
+      throw new Error("GOOGLE_CREDENTIALS não é um JSON válido");
+    }
+
+    try {
+      token = JSON.parse(cleanToken);
+      console.log("✓ GOOGLE_TOKEN parsed successfully");
+    } catch (parseError) {
+      console.error("❌ Erro ao fazer parse de GOOGLE_TOKEN:");
+      console.error("Erro:", parseError.message);
+      console.error("Conteúdo (primeiros 200 chars):", cleanToken.substring(0, 200));
+      throw new Error("GOOGLE_TOKEN não é um JSON válido");
+    }
+
+    // Verifica se a estrutura do credentials está correta
+    if (!credentials.installed) {
+      throw new Error("GOOGLE_CREDENTIALS deve conter um objeto 'installed'");
+    }
 
     const { client_secret, client_id, redirect_uris } = credentials.installed;
+
+    if (!client_secret || !client_id || !redirect_uris) {
+      throw new Error("GOOGLE_CREDENTIALS.installed deve conter client_secret, client_id e redirect_uris");
+    }
+
+    // Verifica se o token tem a estrutura necessária
+    if (!token.access_token) {
+      throw new Error("GOOGLE_TOKEN deve conter access_token");
+    }
 
     const oAuth2Client = new google.auth.OAuth2(
       client_id,
@@ -29,11 +90,22 @@ function loadCredentials() {
     );
 
     oAuth2Client.setCredentials(token);
+    console.log("✅ Credenciais OAuth2 configuradas com sucesso");
 
     return oAuth2Client;
   } catch (error) {
     console.error("❌ Erro ao carregar credenciais:", error.message);
-    console.error("Detalhes do erro:", error);
+    
+    // Informações de debug para ajudar na configuração
+    console.log("\n🔍 Debug info:");
+    console.log("GOOGLE_CREDENTIALS exists:", !!process.env.GOOGLE_CREDENTIALS);
+    console.log("GOOGLE_TOKEN exists:", !!process.env.GOOGLE_TOKEN);
+    console.log("REMENTE exists:", !!process.env.REMENTE);
+    console.log("TWILIO_SID exists:", !!process.env.TWILIO_SID);
+    console.log("TWILIO_AUTH_TOKEN exists:", !!process.env.TWILIO_AUTH_TOKEN);
+    console.log("TWILIO_PHONE exists:", !!process.env.TWILIO_PHONE);
+    console.log("DEST_PHONE exists:", !!process.env.DEST_PHONE);
+    
     throw error;
   }
 }
@@ -44,7 +116,12 @@ async function verificarEmail() {
     const auth = loadCredentials();
     const gmail = google.gmail({ version: "v1", auth });
 
-    // Buscar até 10 e-mails não lidos do remetente a partir da data desejada
+    // Verifica se o REMENTE está definido
+    if (!process.env.REMENTE) {
+      throw new Error("Variável REMENTE não está definida");
+    }
+
+    // Buscar até 10 e-mails não lidos do remetente
     const res = await gmail.users.messages.list({
       userId: "me",
       q: `from:${process.env.REMENTE} is:unread`,
@@ -57,6 +134,8 @@ async function verificarEmail() {
       console.log("📭 Nenhum novo e-mail não lido do remetente.");
       return;
     }
+
+    console.log(`📧 Encontrados ${messages.length} e-mails não lidos`);
 
     // Buscar detalhes das mensagens e ordenar por data
     const mensagensDetalhadas = await Promise.all(
@@ -102,7 +181,12 @@ async function verificarEmail() {
     }
 
     // Limita o tamanho do corpo para evitar exceder limites do WhatsApp
-    body = body.substring(0, 3000); // WhatsApp tem limite de ~4096 caracteres por mensagem
+    body = body.substring(0, 3000);
+
+    // Verifica as configurações do Twilio
+    if (!process.env.TWILIO_PHONE || !process.env.DEST_PHONE) {
+      throw new Error("Variáveis TWILIO_PHONE ou DEST_PHONE não estão definidas");
+    }
 
     // Prepara a mensagem para o WhatsApp
     const texto = `📬 Novo e-mail de ${remetente}\nAssunto: ${assunto}\n\n${body}`;
@@ -127,13 +211,52 @@ async function verificarEmail() {
     console.log("✅ E-mail marcado como lido.\n");
   } catch (error) {
     console.error("❌ Erro ao verificar/enviar e-mail:", error.message);
+    console.error("Stack trace:", error.stack);
   }
 }
 
-// Verifica a cada 1 minuto (60000 ms) - ajuste conforme necessário
-const intervalo = process.env.INTERVALO || 60000;
+// Função para validar todas as variáveis de ambiente necessárias
+function validarVariaveisAmbiente() {
+  const variaveisNecessarias = [
+    'GOOGLE_CREDENTIALS',
+    'GOOGLE_TOKEN', 
+    'REMENTE',
+    'TWILIO_SID',
+    'TWILIO_AUTH_TOKEN',
+    'TWILIO_PHONE',
+    'DEST_PHONE'
+  ];
+
+  console.log("🔍 Validando variáveis de ambiente...");
+  
+  const variaveisFaltando = [];
+  
+  for (const variavel of variaveisNecessarias) {
+    if (!process.env[variavel]) {
+      variaveisFaltando.push(variavel);
+    } else {
+      console.log(`✅ ${variavel}: definida`);
+    }
+  }
+
+  if (variaveisFaltando.length > 0) {
+    console.error("❌ Variáveis de ambiente faltando:");
+    variaveisFaltando.forEach(v => console.error(`  - ${v}`));
+    process.exit(1);
+  }
+
+  console.log("✅ Todas as variáveis de ambiente estão definidas\n");
+}
+
+// Executa a validação antes de iniciar
+validarVariaveisAmbiente();
+
+// Verifica a cada intervalo definido (padrão: 1 minuto)
+const intervalo = parseInt(process.env.INTERVALO) || 60000;
 console.log(`⏱️ Iniciando verificação de e-mails a cada ${intervalo / 1000} segundos...`);
-setInterval(verificarEmail, intervalo);
 
 // Executa imediatamente ao iniciar
 verificarEmail();
+
+// Configura o intervalo
+setInterval(verificarEmail, intervalo);
