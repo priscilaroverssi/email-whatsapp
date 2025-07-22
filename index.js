@@ -1,6 +1,4 @@
 require("dotenv").config();
-const fs = require("fs");
-const path = require("path");
 const { google } = require("googleapis");
 const twilio = require("twilio");
 
@@ -9,13 +7,23 @@ const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 // Remetente desejado
 const REMETENTE = "priscilaroverssi01@gmail.com";
 
-// Carrega as credenciais do OAuth2
+// Carrega as credenciais do OAuth2, lendo das variáveis de ambiente ou, opcionalmente, do arquivo local (para dev)
 function loadCredentials() {
-  const credentialsPath = path.join(__dirname, "credentials.json");
-  const tokenPath = path.join(__dirname, "token.json");
+  let credentials, token;
 
-  const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
-  const token = JSON.parse(fs.readFileSync(tokenPath, "utf-8"));
+  if (process.env.GOOGLE_CREDENTIALS && process.env.GOOGLE_TOKEN) {
+    credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+    token = JSON.parse(process.env.GOOGLE_TOKEN);
+  } else {
+    // fallback local, útil só para dev
+    const fs = require("fs");
+    const path = require("path");
+    const credentialsPath = path.join(__dirname, "credentials.json");
+    const tokenPath = path.join(__dirname, "token.json");
+
+    credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
+    token = JSON.parse(fs.readFileSync(tokenPath, "utf-8"));
+  }
 
   const { client_secret, client_id, redirect_uris } = credentials.installed;
 
@@ -51,7 +59,7 @@ async function verificarEmail() {
 
     // Buscar detalhes das mensagens e ordenar por data
     const mensagensDetalhadas = await Promise.all(
-      messages.map(async msg => {
+      messages.map(async (msg) => {
         const full = await gmail.users.messages.get({ userId: "me", id: msg.id });
         const internalDate = parseInt(full.data.internalDate, 10);
         return { id: msg.id, data: full, timestamp: internalDate };
@@ -65,7 +73,7 @@ async function verificarEmail() {
     const fullMessage = mensagemRecente.data;
 
     const headers = fullMessage.data.payload.headers;
-    const assunto = headers.find(h => h.name === "Subject")?.value || "(sem assunto)";
+    const assunto = headers.find((h) => h.name === "Subject")?.value || "(sem assunto)";
 
     let body = "";
 
@@ -116,7 +124,6 @@ async function verificarEmail() {
     });
 
     console.log("✅ E-mail marcado como lido.\n");
-
   } catch (error) {
     console.error("❌ Erro ao verificar/enviar e-mail:", error.message);
   }
