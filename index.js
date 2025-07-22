@@ -2,58 +2,49 @@ require("dotenv").config();
 const { google } = require("googleapis");
 const twilio = require("twilio");
 
+// Configuração do Twilio
 const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
-// Remetente desejado
-const REMETENTE = "priscilaroverssi01@gmail.com";
-
-// Carrega as credenciais do OAuth2, lendo das variáveis de ambiente ou, opcionalmente, do arquivo local (para dev)
+// Carrega as credenciais do OAuth2 a partir das variáveis de ambiente
 function loadCredentials() {
-  let credentials, token;
+  try {
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+    const token = JSON.parse(process.env.GOOGLE_TOKEN);
 
-  if (process.env.GOOGLE_CREDENTIALS && process.env.GOOGLE_TOKEN) {
-    credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-    token = JSON.parse(process.env.GOOGLE_TOKEN);
-  } else {
-    // fallback local, útil só para dev
-    const fs = require("fs");
-    const path = require("path");
-    const credentialsPath = path.join(__dirname, "credentials.json");
-    const tokenPath = path.join(__dirname, "token.json");
+    const { client_secret, client_id, redirect_uris } = credentials.installed;
 
-    credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
-    token = JSON.parse(fs.readFileSync(tokenPath, "utf-8"));
+    const oAuth2Client = new google.auth.OAuth2(
+      client_id,
+      client_secret,
+      redirect_uris[0]
+    );
+
+    oAuth2Client.setCredentials(token);
+
+    return oAuth2Client;
+  } catch (error) {
+    console.error("❌ Erro ao carregar credenciais:", error.message);
+    throw error;
   }
-
-  const { client_secret, client_id, redirect_uris } = credentials.installed;
-
-  const oAuth2Client = new google.auth.OAuth2(
-    client_id,
-    client_secret,
-    redirect_uris[0]
-  );
-
-  oAuth2Client.setCredentials(token);
-
-  return oAuth2Client;
 }
 
 async function verificarEmail() {
   try {
+    console.log("🔍 Verificando novos e-mails...");
     const auth = loadCredentials();
     const gmail = google.gmail({ version: "v1", auth });
 
     // Buscar até 10 e-mails não lidos do remetente a partir da data desejada
     const res = await gmail.users.messages.list({
       userId: "me",
-      q: `from:${REMETENTE} is:unread after:2025/07/22`,
+      q: `from:${process.env.REMENTE} is:unread`,
       maxResults: 10,
     });
 
     const messages = res.data.messages || [];
 
     if (messages.length === 0) {
-      console.log("📭 Nenhum novo e-mail não lido do remetente após 22/07/2025.");
+      console.log("📭 Nenhum novo e-mail não lido do remetente.");
       return;
     }
 
@@ -74,6 +65,7 @@ async function verificarEmail() {
 
     const headers = fullMessage.data.payload.headers;
     const assunto = headers.find((h) => h.name === "Subject")?.value || "(sem assunto)";
+    const remetente = headers.find((h) => h.name === "From")?.value || process.env.REMENTE;
 
     let body = "";
 
@@ -99,20 +91,19 @@ async function verificarEmail() {
       return;
     }
 
-    // Divide o corpo em partes de até 1000 caracteres
-    const partes = body.match(/.{1,1000}/gs) || [];
+    // Limita o tamanho do corpo para evitar exceder limites do WhatsApp
+    body = body.substring(0, 3000); // WhatsApp tem limite de ~4096 caracteres por mensagem
 
-    for (let i = 0; i < partes.length; i++) {
-      const texto = `📬 Novo e-mail de ${REMETENTE}\nAssunto: ${assunto}\n\nParte ${i + 1}:\n\n${partes[i]}`;
+    // Prepara a mensagem para o WhatsApp
+    const texto = `📬 Novo e-mail de ${remetente}\nAssunto: ${assunto}\n\n${body}`;
 
-      await client.messages.create({
-        from: process.env.TWILIO_PHONE,
-        to: process.env.DEST_PHONE,
-        body: texto,
-      });
+    await client.messages.create({
+      from: process.env.TWILIO_PHONE,
+      to: process.env.DEST_PHONE,
+      body: texto,
+    });
 
-      console.log(`✅ Parte ${i + 1} enviada com sucesso ao WhatsApp.`);
-    }
+    console.log("✅ E-mail enviado com sucesso ao WhatsApp.");
 
     // Marca como lido para não repetir
     await gmail.users.messages.modify({
@@ -129,5 +120,10 @@ async function verificarEmail() {
   }
 }
 
-// Verifica a cada 10 segundos
-setInterval(verificarEmail, 10000);
+// Verifica a cada 1 minuto (60000 ms) - ajuste conforme necessário
+const intervalo = process.env.INTERVALO || 60000;
+console.log(`⏱️ Iniciando verificação de e-mails a cada ${intervalo / 1000} segundos...`);
+setInterval(verificarEmail, intervalo);
+
+// Executa imediatamente ao iniciar
+verificarEmail();
