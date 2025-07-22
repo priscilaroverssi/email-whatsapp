@@ -8,8 +8,17 @@ const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 // Carrega as credenciais do OAuth2 a partir das variáveis de ambiente
 function loadCredentials() {
   try {
-    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-    const token = JSON.parse(process.env.GOOGLE_TOKEN);
+    // Verifica se as variáveis de ambiente existem
+    if (!process.env.GOOGLE_CREDENTIALS || !process.env.GOOGLE_TOKEN) {
+      throw new Error("Variáveis GOOGLE_CREDENTIALS ou GOOGLE_TOKEN não encontradas");
+    }
+
+    // Remove possíveis caracteres inválidos que podem ter sido adicionados ao copiar/colar
+    const cleanCredentials = process.env.GOOGLE_CREDENTIALS.replace(/\\n/g, '').trim();
+    const cleanToken = process.env.GOOGLE_TOKEN.replace(/\\n/g, '').trim();
+
+    const credentials = JSON.parse(cleanCredentials);
+    const token = JSON.parse(cleanToken);
 
     const { client_secret, client_id, redirect_uris } = credentials.installed;
 
@@ -24,6 +33,7 @@ function loadCredentials() {
     return oAuth2Client;
   } catch (error) {
     console.error("❌ Erro ao carregar credenciais:", error.message);
+    console.error("Detalhes do erro:", error);
     throw error;
   }
 }
