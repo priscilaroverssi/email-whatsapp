@@ -228,24 +228,77 @@ function validarVariaveisAmbiente() {
   ];
 
   console.log("🔍 Validando variáveis de ambiente...");
+  console.log("📍 Ambiente atual:", process.env.NODE_ENV || 'development');
   
   const variaveisFaltando = [];
+  const variaveisVazias = [];
   
   for (const variavel of variaveisNecessarias) {
     if (!process.env[variavel]) {
       variaveisFaltando.push(variavel);
+      console.log(`❌ ${variavel}: não definida`);
+    } else if (process.env[variavel].trim() === '') {
+      variaveisVazias.push(variavel);
+      console.log(`⚠️ ${variavel}: definida mas vazia`);
     } else {
-      console.log(`✅ ${variavel}: definida`);
+      console.log(`✅ ${variavel}: definida (${process.env[variavel].length} chars)`);
     }
   }
 
-  if (variaveisFaltando.length > 0) {
-    console.error("❌ Variáveis de ambiente faltando:");
-    variaveisFaltando.forEach(v => console.error(`  - ${v}`));
-    process.exit(1);
+  if (variaveisFaltando.length > 0 || variaveisVazias.length > 0) {
+    console.error("\n❌ PROBLEMAS COM VARIÁVEIS DE AMBIENTE:");
+    
+    if (variaveisFaltando.length > 0) {
+      console.error("🚫 Variáveis não definidas:");
+      variaveisFaltando.forEach(v => console.error(`  - ${v}`));
+    }
+    
+    if (variaveisVazias.length > 0) {
+      console.error("⚠️ Variáveis vazias:");
+      variaveisVazias.forEach(v => console.error(`  - ${v}`));
+    }
+    
+    console.error("\n📋 INSTRUÇÕES PARA RAILWAY:");
+    console.error("1. Acesse seu projeto no Railway");
+    console.error("2. Vá na aba 'Variables'");
+    console.error("3. Adicione as variáveis faltando:");
+    
+    if (variaveisFaltando.includes('GOOGLE_CREDENTIALS')) {
+      console.error("   GOOGLE_CREDENTIALS = (cole o JSON das credenciais OAuth2 do Google)");
+    }
+    if (variaveisFaltando.includes('GOOGLE_TOKEN')) {
+      console.error("   GOOGLE_TOKEN = (cole o JSON do token OAuth2)");
+    }
+    if (variaveisFaltando.includes('REMENTE')) {
+      console.error("   REMENTE = email@exemplo.com");
+    }
+    if (variaveisFaltando.includes('TWILIO_SID')) {
+      console.error("   TWILIO_SID = (seu Twilio Account SID)");
+    }
+    if (variaveisFaltando.includes('TWILIO_AUTH_TOKEN')) {
+      console.error("   TWILIO_AUTH_TOKEN = (seu Twilio Auth Token)");
+    }
+    if (variaveisFaltando.includes('TWILIO_PHONE')) {
+      console.error("   TWILIO_PHONE = +15551234567 (número do Twilio)");
+    }
+    if (variaveisFaltando.includes('DEST_PHONE')) {
+      console.error("   DEST_PHONE = +5511999999999 (seu WhatsApp)");
+    }
+    
+    console.error("\n4. Salve e faça redeploy do projeto");
+    console.error("\n⏳ Aguardando por 30 segundos antes de tentar novamente...");
+    
+    // Aguarda 30 segundos antes de tentar novamente (em vez de sair)
+    setTimeout(() => {
+      console.log("🔄 Tentando novamente...");
+      validarVariaveisAmbiente();
+    }, 30000);
+    
+    return false; // Indica que a validação falhou
   }
 
   console.log("✅ Todas as variáveis de ambiente estão definidas\n");
+  return true; // Indica que a validação passou
 }
 
 // Executa a validação antes de iniciar
