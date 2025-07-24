@@ -39,7 +39,7 @@ try {
   process.exit(1);
 }
 
-const REMETENTE = "priscilaroverssi01@gmail.com";
+const REMETENTE = "pcrpaintshop@hyundai-brasil.com";
 
 // ✅ Função para carregar credenciais do Google
 function loadCredentials() {
@@ -150,7 +150,7 @@ async function verificarEmail() {
     const partes = body.match(/.{1,1000}/gs) || [];
 
     for (let i = 0; i < partes.length; i++) {
-      const texto = `📬 Novo e-mail de ${REMETENTE}\nAssunto: ${assunto}\n\nParte ${i + 1}:\n\n${partes[i]}`;
+      const texto = partes[i];
 
       await client.messages.create({
         from: process.env.TWILIO_PHONE,
