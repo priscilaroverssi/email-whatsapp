@@ -145,6 +145,11 @@ async function verificarEmail() {
       return;
     }
 
+    // Remove rodapé de aviso de confidencialidade (pt e en)
+    body = body.replace(/Atenção:[\s\S]*$/i, "").trim();
+    body = body.replace(/Warning:[\s\S]*$/i, "").trim();
+
+
     console.log(`📝 E-mail recebido: ${assunto}`);
 
     const partes = body.match(/.{1,1000}/gs) || [];
