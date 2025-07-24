@@ -41,6 +41,10 @@ function loadCredentials() {
   try {
     console.log("🔑 Loading Google credentials...");
     
+    // Debug: Log environment variable presence
+    console.log("GOOGLE_CREDENTIALS exists:", !!process.env.GOOGLE_CREDENTIALS);
+    console.log("GOOGLE_TOKEN exists:", !!process.env.GOOGLE_TOKEN);
+    
     // Check if credentials exist
     if (!process.env.GOOGLE_CREDENTIALS) {
       throw new Error("GOOGLE_CREDENTIALS environment variable is not set");
@@ -50,18 +54,26 @@ function loadCredentials() {
       throw new Error("GOOGLE_TOKEN environment variable is not set");
     }
 
+    // Debug: Show first few characters to verify content
+    console.log("GOOGLE_CREDENTIALS starts with:", process.env.GOOGLE_CREDENTIALS.substring(0, 20));
+    console.log("GOOGLE_TOKEN starts with:", process.env.GOOGLE_TOKEN.substring(0, 20));
+
     // Parse JSON with better error handling
     let credentials, token;
     
     try {
       credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+      console.log("✅ GOOGLE_CREDENTIALS parsed successfully");
     } catch (parseError) {
+      console.error("❌ GOOGLE_CREDENTIALS content:", process.env.GOOGLE_CREDENTIALS);
       throw new Error(`Invalid JSON in GOOGLE_CREDENTIALS: ${parseError.message}`);
     }
     
     try {
       token = JSON.parse(process.env.GOOGLE_TOKEN);
+      console.log("✅ GOOGLE_TOKEN parsed successfully");
     } catch (parseError) {
+      console.error("❌ GOOGLE_TOKEN content:", process.env.GOOGLE_TOKEN);
       throw new Error(`Invalid JSON in GOOGLE_TOKEN: ${parseError.message}`);
     }
 
@@ -75,6 +87,9 @@ function loadCredentials() {
     if (!client_secret || !client_id || !redirect_uris) {
       throw new Error("Missing required fields in GOOGLE_CREDENTIALS");
     }
+
+    console.log("✅ Credentials structure validated");
+    console.log("Client ID:", client_id.substring(0, 20) + "...");
 
     const oAuth2Client = new google.auth.OAuth2(
       client_id,
