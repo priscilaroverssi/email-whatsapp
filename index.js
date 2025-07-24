@@ -1,146 +1,194 @@
-require("dotenv").config();
-const fs = require("fs");
-const path = require("path");
+// Configuração inicial - REMOVA dotenv para produção no Railway
+// require("dotenv").config(); // Não é necessário no Railway
 const { google } = require("googleapis");
 const twilio = require("twilio");
 
-// Adicione isso logo após require("dotenv").config();
-console.log("Verificando variáveis de ambiente...");
-console.log("TWILIO_SID:", process.env.TWILIO_SID ? "***" : "Não definido");
-console.log("GOOGLE_CREDENTIALS:", process.env.GOOGLE_CREDENTIALS ? "***" : "Não definido");
-console.log("GOOGLE_TOKEN:", process.env.GOOGLE_TOKEN ? "***" : "Não definido");
+// Verificação robusta de variáveis de ambiente
+console.log("🔄 Verificando variáveis de ambiente...");
+const requiredVars = [
+  'TWILIO_SID',
+  'TWILIO_AUTH_TOKEN',
+  'TWILIO_PHONE',
+  'DEST_PHONE',
+  'GOOGLE_CREDENTIALS',
+  'GOOGLE_TOKEN'
+];
 
-if (!process.env.GOOGLE_CREDENTIALS || !process.env.GOOGLE_TOKEN) {
-  throw new Error("Variáveis GOOGLE_CREDENTIALS ou GOOGLE_TOKEN não definidas!");
+let missingVars = [];
+requiredVars.forEach(varName => {
+  if (!process.env[varName]) {
+    missingVars.push(varName);
+    console.error(`❌ ${varName}: Não definido`);
+  } else {
+    console.log(`✅ ${varName}: Definido`);
+  }
+});
+
+if (missingVars.length > 0) {
+  throw new Error(`Variáveis de ambiente ausentes: ${missingVars.join(', ')}`);
 }
 
+// Inicializa o cliente Twilio
 const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
-
-// Remetente desejado
 const REMETENTE = "priscilaroverssi01@gmail.com";
 
-// Carrega as credenciais do OAuth2
+// Função para carregar credenciais do Google com tratamento de erros
 function loadCredentials() {
-  const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-  const token = JSON.parse(process.env.GOOGLE_TOKEN);
+  try {
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+    const token = JSON.parse(process.env.GOOGLE_TOKEN);
 
-  const { client_secret, client_id, redirect_uris } = credentials.installed;
+    if (!credentials.installed || !token.access_token) {
+      throw new Error("Estrutura do JSON inválida");
+    }
 
-  const oAuth2Client = new google.auth.OAuth2(
-    client_id,
-    client_secret,
-    redirect_uris[0]
-  );
-
-  oAuth2Client.setCredentials(token);
-
-  return oAuth2Client;
+    const { client_secret, client_id, redirect_uris } = credentials.installed;
+    const oAuth2Client = new google.auth.OAuth2(
+      client_id,
+      client_secret,
+      redirect_uris[0]
+    );
+    
+    oAuth2Client.setCredentials(token);
+    return oAuth2Client;
+  } catch (error) {
+    console.error("❌ Erro ao carregar credenciais do Google:", error.message);
+    throw error;
+  }
 }
-// Função recursiva para extrair o corpo do e-mail
+
+// Função melhorada para extrair o corpo do e-mail
 function extractBody(payload) {
-  if (payload.body?.data) {
-    return Buffer.from(payload.body.data, "base64").toString("utf-8");
-  }
-
-  if (payload.parts && payload.parts.length > 0) {
-    for (const part of payload.parts) {
-      if (part.mimeType === "text/plain" && part.body?.data) {
-        return Buffer.from(part.body.data, "base64").toString("utf-8");
-      }
+  try {
+    if (payload.body?.data) {
+      return Buffer.from(payload.body.data, "base64").toString("utf-8");
     }
 
-    for (const part of payload.parts) {
-      if (part.mimeType === "text/html" && part.body?.data) {
-        const html = Buffer.from(part.body.data, "base64").toString("utf-8");
-        return html.replace(/<[^>]+>/g, ""); // remove HTML
-      }
-
-      // Recurse se houver partes aninhadas
-      if (part.parts && part.parts.length > 0) {
-        const result = extractBody(part);
-        if (result) return result;
+    if (payload.parts) {
+      for (const part of payload.parts) {
+        if (part.mimeType === "text/plain" && part.body?.data) {
+          return Buffer.from(part.body.data, "base64").toString("utf-8");
+        }
+        if (part.mimeType === "text/html" && part.body?.data) {
+          const html = Buffer.from(part.body.data, "base64").toString("utf-8");
+          return html.replace(/<[^>]+>/g, ""); // Remove tags HTML
+        }
+        if (part.parts) {
+          const result = extractBody(part);
+          if (result) return result;
+        }
       }
     }
+    return "";
+  } catch (error) {
+    console.error("❌ Erro ao extrair corpo do e-mail:", error.message);
+    return "";
   }
-
-  return "";
 }
 
+// Função principal para verificar e-mails
 async function verificarEmail() {
   try {
+    console.log("\n🔍 Verificando e-mails...");
     const auth = loadCredentials();
     const gmail = google.gmail({ version: "v1", auth });
 
-    // Buscar até 10 e-mails não lidos do remetente a partir da data desejada
+    // Busca e-mails não lidos (últimas 24 horas)
     const res = await gmail.users.messages.list({
       userId: "me",
-      q: `from:${REMETENTE} is:unread after:2025/07/22`,
+      q: `from:${REMETENTE} is:unread after:${getFormattedDate(1)}`,
       maxResults: 10,
     });
 
     const messages = res.data.messages || [];
+    console.log(`📨 E-mails não lidos encontrados: ${messages.length}`);
 
-    if (messages.length === 0) {
-      console.log("📭 Nenhum novo e-mail não lido do remetente após 22/07/2025.");
+    if (messages.length === 0) return;
+
+    // Processa o e-mail mais recente
+    const mostRecent = await getEmailDetails(gmail, messages[0].id);
+    const { subject, body } = processEmail(mostRecent.payload);
+
+    if (!body) {
+      console.log("⚠️ E-mail sem conteúdo legível.");
       return;
     }
 
-    // Buscar detalhes das mensagens e ordenar por data
-    const mensagensDetalhadas = await Promise.all(
-      messages.map(async msg => {
-        const full = await gmail.users.messages.get({ userId: "me", id: msg.id });
-        const internalDate = parseInt(full.data.internalDate, 10);
-        return { id: msg.id, data: full, timestamp: internalDate };
-      })
-    );
+    // Envia para WhatsApp em partes
+    await sendWhatsAppMessage(subject, body);
 
-    mensagensDetalhadas.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Pega o e-mail mais recente
-    const mensagemRecente = mensagensDetalhadas[0];
-    const fullMessage = mensagemRecente.data;
-
-    const headers = fullMessage.data.payload.headers;
-    const assunto = headers.find(h => h.name === "Subject")?.value || "(sem assunto)";
-
-    // Extrair corpo do e-mail de forma robusta
-    const body = extractBody(fullMessage.data.payload);
-
-    if (!body || !body.trim()) {
-      console.log("⚠️ Corpo do e-mail vazio.");
-      return;
-    }
-
-    // Divide o corpo em partes de até 1000 caracteres
-    const partes = body.match(/.{1,1000}/gs) || [];
-
-    for (let i = 0; i < partes.length; i++) {
-      const texto = `📬 Novo e-mail de ${REMETENTE}\nAssunto: ${assunto}\n\nParte ${i + 1}:\n\n${partes[i]}`;
-
-      await client.messages.create({
-        from: process.env.TWILIO_PHONE,
-        to: process.env.DEST_PHONE,
-        body: texto,
-      });
-
-      console.log(`✅ Parte ${i + 1} enviada com sucesso ao WhatsApp.`);
-    }
-
-    // Marca como lido para não repetir
+    // Marca como lido
     await gmail.users.messages.modify({
       userId: "me",
-      id: mensagemRecente.id,
-      requestBody: {
-        removeLabelIds: ["UNREAD"],
-      },
+      id: mostRecent.id,
+      requestBody: { removeLabelIds: ["UNREAD"] },
     });
 
-    console.log("✅ E-mail marcado como lido.\n");
+    console.log("✅ E-mail processado com sucesso!");
 
   } catch (error) {
-    console.error("❌ Erro ao verificar/enviar e-mail:", error.message);
+    console.error("❌ Erro na verificação de e-mail:", error.message);
   }
 }
 
-// Verifica a cada 10 segundos
-setInterval(verificarEmail, 10000);
+// Funções auxiliares
+function getFormattedDate(daysAgo) {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+async function getEmailDetails(gmail, id) {
+  const email = await gmail.users.messages.get({ userId: "me", id });
+  return {
+    id,
+    payload: email.data.payload,
+    internalDate: parseInt(email.data.internalDate, 10)
+  };
+}
+
+function processEmail(payload) {
+  const headers = payload.headers || [];
+  const subject = headers.find(h => h.name === "Subject")?.value || "(sem assunto)";
+  const body = extractBody(payload);
+  return { subject, body };
+}
+
+async function sendWhatsAppMessage(subject, body) {
+  const chunks = body.match(/.{1,1000}/gs) || [];
+  
+  for (let i = 0; i < chunks.length; i++) {
+    const text = `📬 Novo e-mail de ${REMETENTE}\nAssunto: ${subject}\n\nParte ${i + 1}:\n\n${chunks[i]}`;
+    
+    await client.messages.create({
+      from: process.env.TWILIO_PHONE,
+      to: process.env.DEST_PHONE,
+      body: text,
+    });
+
+    console.log(`✅ Parte ${i + 1} enviada ao WhatsApp.`);
+  }
+}
+
+// Controle de execução para evitar sobreposição
+let isRunning = false;
+async function runWithInterval() {
+  if (isRunning) {
+    console.log("⏳ Operação anterior ainda em andamento...");
+    return;
+  }
+  
+  try {
+    isRunning = true;
+    await verificarEmail();
+  } catch (error) {
+    console.error("❌ Erro no loop principal:", error.message);
+  } finally {
+    isRunning = false;
+  }
+}
+
+// Inicia o serviço
+console.log("\n🚀 Serviço iniciado com sucesso!");
+runWithInterval();
+setInterval(runWithInterval, 10000);
