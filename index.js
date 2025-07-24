@@ -7,7 +7,7 @@ const twilio = require("twilio");
 const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
 // Remetente desejado
-const REMETENTE = "pcrpaintshop@hyundai-brasil.com";
+const REMETENTE = "priscilaroverssi01@gmail.com";
 
 // Carrega as credenciais do OAuth2
 function loadCredentials() {
