@@ -3,27 +3,75 @@ const { google } = require("googleapis");
 const twilio = require("twilio");
 
 // =============================================
-// 🔍 Verificação Inicial das Variáveis de Ambiente
+// 🔍 Verificação Avançada de Variáveis de Ambiente
 // =============================================
-console.log("\n🔍 Verificando variáveis de ambiente...");
+console.log("\n🔍 Verificando ambiente...");
 
-const requiredEnvVars = [
-  'TWILIO_SID',
-  'TWILIO_AUTH_TOKEN',
-  'TWILIO_PHONE',
-  'DEST_PHONE',
-  'GOOGLE_CREDENTIALS',
-  'GOOGLE_TOKEN'
-];
-
-// Verifica se todas as variáveis necessárias estão definidas
-requiredEnvVars.forEach(varName => {
-  if (!process.env[varName]) {
-    console.error(`❌ ERRO CRÍTICO: Variável ausente - ${varName}`);
-    process.exit(1); // Encerra o processo se faltar alguma variável
+const ENV_VARS = {
+  TWILIO_SID: {
+    desc: "Twilio Account SID",
+    val: process.env.TWILIO_SID,
+    required: true
+  },
+  TWILIO_AUTH_TOKEN: {
+    desc: "Twilio Auth Token", 
+    val: process.env.TWILIO_AUTH_TOKEN,
+    required: true,
+    secret: true
+  },
+  TWILIO_PHONE: {
+    desc: "Número Twilio (WhatsApp)",
+    val: process.env.TWILIO_PHONE,
+    required: true,
+    validate: v => v && (v.startsWith('whatsapp:+') || v.startsWith('+'))
+  },
+  DEST_PHONE: {
+    desc: "Número de destino",
+    val: process.env.DEST_PHONE,
+    required: true,
+    validate: v => v && (v.startsWith('whatsapp:+') || v.startsWith('+'))
+  },
+  GOOGLE_CREDENTIALS: {
+    desc: "Credenciais Google",
+    val: process.env.GOOGLE_CREDENTIALS,
+    required: true,
+    json: true
+  },
+  GOOGLE_TOKEN: {
+    desc: "Token Google",
+    val: process.env.GOOGLE_TOKEN,
+    required: true,
+    json: true
   }
-  console.log(`✓ ${varName}: ${varName.includes('TOKEN') || varName.includes('SECRET') ? '***' : process.env[varName].substring(0, 5)}...`);
+};
+
+// Verificação robusta
+let hasError = false;
+Object.entries(ENV_VARS).forEach(([key, config]) => {
+  try {
+    if (config.required && !config.val) {
+      throw new Error(`Variável obrigatória ausente`);
+    }
+    
+    if (config.validate && !config.validate(config.val)) {
+      throw new Error(`Formato inválido (deve começar com '+')`);
+    }
+    
+    if (config.json) {
+      JSON.parse(config.val);
+    }
+
+    console.log(`✓ ${key.padEnd(20)}: ${config.secret ? '***' : config.val?.substring(0, 15)}${config.val?.length > 15 ? '...' : ''}`);
+  } catch (error) {
+    console.error(`❌ ${key.padEnd(20)}: ERRO - ${error.message}`);
+    hasError = true;
+  }
 });
+
+if (hasError) {
+  console.error("\n🛑 Corrija as variáveis de ambiente antes de continuar");
+  process.exit(1);
+}
 
 // =============================================
 // 🔧 Configuração Inicial
@@ -137,6 +185,7 @@ async function verificarEmail() {
 
   } catch (error) {
     console.error("❌ ERRO NA VERIFICAÇÃO:", error.message);
+    throw error; // Propaga o erro para o gerenciador de erros principal
   }
 }
 
@@ -182,17 +231,38 @@ async function sendToWhatsApp(subject, body) {
 }
 
 // =============================================
-// 🚀 Inicialização do Serviço
+// 🚀 Inicialização do Serviço com Gerenciamento de Erros
 // =============================================
 let isRunning = false;
-setInterval(async () => {
-  if (!isRunning) {
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 5;
+
+async function mainLoop() {
+  if (isRunning) {
+    console.log("⏳ Operação anterior ainda em andamento...");
+    return;
+  }
+
+  try {
     isRunning = true;
     await verificarEmail();
+    consecutiveErrors = 0; // Resetar contador de erros
+  } catch (error) {
+    consecutiveErrors++;
+    console.error(`❌ Erro (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, error.message);
+    
+    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+      console.error("🛑 Muitos erros consecutivos. Encerrando...");
+      process.exit(1);
+    }
+  } finally {
     isRunning = false;
-  } else {
-    console.log("⏳ Operação anterior ainda em andamento...");
   }
-}, 10000); // Verifica a cada 10 segundos
+}
 
+// Inicia o serviço
 console.log("\n🚀 Serviço iniciado com sucesso! Monitorando e-mails...");
+
+// Executa imediatamente e depois a cada 10 segundos
+mainLoop();
+setInterval(mainLoop, 10000);
