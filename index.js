@@ -9,9 +9,22 @@ const REMETENTE = "priscilaroverssi01@gmail.com";
 // Carrega as credenciais do OAuth2 usando variáveis de ambiente
 function loadCredentials() {
   try {
+    // Verifica se as variáveis de ambiente existem
+    if (!process.env.GOOGLE_CREDENTIALS) {
+      throw new Error("Variável GOOGLE_CREDENTIALS não encontrada");
+    }
+    
+    if (!process.env.GOOGLE_TOKEN) {
+      throw new Error("Variável GOOGLE_TOKEN não encontrada");
+    }
+
+    console.log("📋 Carregando credenciais do Google...");
+    
     // Parse das credenciais e token das variáveis de ambiente
     const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
     const token = JSON.parse(process.env.GOOGLE_TOKEN);
+
+    console.log("✅ Credenciais carregadas com sucesso");
 
     const { client_secret, client_id, redirect_uris } = credentials.installed;
 
@@ -26,6 +39,7 @@ function loadCredentials() {
     return oAuth2Client;
   } catch (error) {
     console.error("❌ Erro ao carregar credenciais:", error.message);
+    console.error("📝 Verifique se as variáveis GOOGLE_CREDENTIALS e GOOGLE_TOKEN estão configuradas corretamente");
     throw error;
   }
 }
@@ -126,11 +140,27 @@ async function verificarEmail() {
 async function iniciarServico() {
   console.log("🚀 Iniciando serviço de monitoramento de e-mail...");
   
-  // Verificação inicial
-  await verificarEmail();
-  
-  // Verifica a cada 10 segundos
-  setInterval(verificarEmail, 10000);
+  try {
+    // Testa se as credenciais estão funcionando
+    const auth = loadCredentials();
+    console.log("✅ Credenciais testadas com sucesso");
+    
+    // Verificação inicial
+    await verificarEmail();
+    
+    // Verifica a cada 10 segundos
+    setInterval(verificarEmail, 10000);
+    
+  } catch (error) {
+    console.error("❌ Falha ao iniciar serviço:", error.message);
+    console.error("🔧 Verifique a configuração das variáveis de ambiente:");
+    console.error("   - GOOGLE_CREDENTIALS: deve conter o JSON completo do arquivo credentials.json");
+    console.error("   - GOOGLE_TOKEN: deve conter o JSON completo do arquivo token.json");
+    console.error("   - TWILIO_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE, DEST_PHONE");
+    
+    // Não encerra o processo, mantém o servidor HTTP ativo
+    console.log("⚠️  Serviço de e-mail desabilitado devido a erros de configuração");
+  }
 }
 
 // Para Railway: escuta na porta fornecida ou 3000
@@ -140,10 +170,23 @@ const PORT = process.env.PORT || 3000;
 const http = require('http');
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ 
-    status: 'Email-WhatsApp service running',
-    timestamp: new Date().toISOString()
-  }));
+  
+  // Status das variáveis de ambiente (sem expor valores sensíveis)
+  const status = {
+    service: 'Email-WhatsApp service',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    environment_check: {
+      GOOGLE_CREDENTIALS: !!process.env.GOOGLE_CREDENTIALS,
+      GOOGLE_TOKEN: !!process.env.GOOGLE_TOKEN,
+      TWILIO_SID: !!process.env.TWILIO_SID,
+      TWILIO_AUTH_TOKEN: !!process.env.TWILIO_AUTH_TOKEN,
+      TWILIO_PHONE: !!process.env.TWILIO_PHONE,
+      DEST_PHONE: !!process.env.DEST_PHONE
+    }
+  };
+  
+  res.end(JSON.stringify(status, null, 2));
 });
 
 server.listen(PORT, () => {
