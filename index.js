@@ -11,8 +11,8 @@ const REMETENTE = "priscilaroverssi01@gmail.com";
 
 // Carrega as credenciais do OAuth2
 function loadCredentials() {
-  const credentialsPath = path.join(__dirname, "credentials.json");
-  const tokenPath = path.join(__dirname, "token.json");
+  const credentialsPath = path.join(__dirname, "GOOGLE_CREDENTIALS");
+  const tokenPath = path.join(__dirname, "GOOGLE_TOKEN");
 
   const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
   const token = JSON.parse(fs.readFileSync(tokenPath, "utf-8"));
