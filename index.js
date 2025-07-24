@@ -1,3 +1,6 @@
+require("dotenv").config();
+const fs = require("fs");
+const path = require("path");
 const { google } = require("googleapis");
 const twilio = require("twilio");
 
@@ -6,42 +9,25 @@ const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 // Remetente desejado
 const REMETENTE = "priscilaroverssi01@gmail.com";
 
-// Carrega as credenciais do OAuth2 usando variáveis de ambiente
+// Carrega as credenciais do OAuth2
 function loadCredentials() {
-  try {
-    // Verifica se as variáveis de ambiente existem
-    if (!process.env.GOOGLE_CREDENTIALS) {
-      throw new Error("Variável GOOGLE_CREDENTIALS não encontrada");
-    }
-    
-    if (!process.env.GOOGLE_TOKEN) {
-      throw new Error("Variável GOOGLE_TOKEN não encontrada");
-    }
+  const credentialsPath = path.join(__dirname, "credentials.json");
+  const tokenPath = path.join(__dirname, "token.json");
 
-    console.log("📋 Carregando credenciais do Google...");
-    
-    // Parse das credenciais e token das variáveis de ambiente
-    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-    const token = JSON.parse(process.env.GOOGLE_TOKEN);
+  const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
+  const token = JSON.parse(fs.readFileSync(tokenPath, "utf-8"));
 
-    console.log("✅ Credenciais carregadas com sucesso");
+  const { client_secret, client_id, redirect_uris } = credentials.installed;
 
-    const { client_secret, client_id, redirect_uris } = credentials.installed;
+  const oAuth2Client = new google.auth.OAuth2(
+    client_id,
+    client_secret,
+    redirect_uris[0]
+  );
 
-    const oAuth2Client = new google.auth.OAuth2(
-      client_id,
-      client_secret,
-      redirect_uris[0]
-    );
+  oAuth2Client.setCredentials(token);
 
-    oAuth2Client.setCredentials(token);
-
-    return oAuth2Client;
-  } catch (error) {
-    console.error("❌ Erro ao carregar credenciais:", error.message);
-    console.error("📝 Verifique se as variáveis GOOGLE_CREDENTIALS e GOOGLE_TOKEN estão configuradas corretamente");
-    throw error;
-  }
+  return oAuth2Client;
 }
 
 async function verificarEmail() {
@@ -136,69 +122,5 @@ async function verificarEmail() {
   }
 }
 
-// Função para iniciar o serviço
-async function iniciarServico() {
-  console.log("🚀 Iniciando serviço de monitoramento de e-mail...");
-  
-  try {
-    // Testa se as credenciais estão funcionando
-    const auth = loadCredentials();
-    console.log("✅ Credenciais testadas com sucesso");
-    
-    // Verificação inicial
-    await verificarEmail();
-    
-    // Verifica a cada 10 segundos
-    setInterval(verificarEmail, 10000);
-    
-  } catch (error) {
-    console.error("❌ Falha ao iniciar serviço:", error.message);
-    console.error("🔧 Verifique a configuração das variáveis de ambiente:");
-    console.error("   - GOOGLE_CREDENTIALS: deve conter o JSON completo do arquivo credentials.json");
-    console.error("   - GOOGLE_TOKEN: deve conter o JSON completo do arquivo token.json");
-    console.error("   - TWILIO_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE, DEST_PHONE");
-    
-    // Não encerra o processo, mantém o servidor HTTP ativo
-    console.log("⚠️  Serviço de e-mail desabilitado devido a erros de configuração");
-  }
-}
-
-// Para Railway: escuta na porta fornecida ou 3000
-const PORT = process.env.PORT || 3000;
-
-// Criar um servidor HTTP básico para manter o serviço ativo no Railway
-const http = require('http');
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  
-  // Status das variáveis de ambiente (sem expor valores sensíveis)
-  const status = {
-    service: 'Email-WhatsApp service',
-    status: 'running',
-    timestamp: new Date().toISOString(),
-    environment_check: {
-      GOOGLE_CREDENTIALS: !!process.env.GOOGLE_CREDENTIALS,
-      GOOGLE_TOKEN: !!process.env.GOOGLE_TOKEN,
-      TWILIO_SID: !!process.env.TWILIO_SID,
-      TWILIO_AUTH_TOKEN: !!process.env.TWILIO_AUTH_TOKEN,
-      TWILIO_PHONE: !!process.env.TWILIO_PHONE,
-      DEST_PHONE: !!process.env.DEST_PHONE
-    }
-  };
-  
-  res.end(JSON.stringify(status, null, 2));
-});
-
-server.listen(PORT, () => {
-  console.log(`🌐 Servidor HTTP rodando na porta ${PORT}`);
-  iniciarServico();
-});
-
-// Tratamento de erros não capturados
-process.on('uncaughtException', (error) => {
-  console.error('❌ Erro não capturado:', error);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Promise rejeitada não tratada:', reason);
-});
+// Verifica a cada 10 segundos
+setInterval(verificarEmail, 10000);
