@@ -1,10 +1,16 @@
-require("dotenv").config();
-const fs = require("fs");
-const path = require("path");
+// Carrega variáveis locais apenas em ambiente de desenvolvimento
+if (process.env.NODE_ENV !== 'production') {
+  require("dotenv").config();
+}
+
 const { google } = require("googleapis");
 const twilio = require("twilio");
 
-// Validate environment variables
+// 🔍 Debug: verifique se o Railway está recebendo as variáveis
+console.log("🧪 TWILIO_SID:", process.env.TWILIO_SID ? "✅ SET" : "❌ NOT SET");
+console.log("🧪 NODE_ENV:", process.env.NODE_ENV);
+
+// ✅ Validação de variáveis obrigatórias
 function validateEnvVars() {
   const required = [
     'TWILIO_SID',
@@ -22,99 +28,69 @@ function validateEnvVars() {
   }
 }
 
-// Initialize Twilio client
+// ✅ Inicialização do Twilio
 let client;
 try {
   validateEnvVars();
   client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
-  console.log("✅ Twilio client initialized successfully");
+  console.log("📞 Twilio client initialized");
 } catch (error) {
-  console.error("❌ Error initializing:", error.message);
+  console.error("❌ Error initializing Twilio:", error.message);
   process.exit(1);
 }
 
-// Remetente desejado
 const REMETENTE = "priscilaroverssi01@gmail.com";
 
-// Carrega as credenciais do OAuth2
+// ✅ Função para carregar credenciais do Google
 function loadCredentials() {
   try {
-    console.log("🔑 Loading Google credentials...");
-    
-    // Debug: Log environment variable presence
-    console.log("GOOGLE_CREDENTIALS exists:", !!process.env.GOOGLE_CREDENTIALS);
-    console.log("GOOGLE_TOKEN exists:", !!process.env.GOOGLE_TOKEN);
-    
-    // Check if credentials exist
-    if (!process.env.GOOGLE_CREDENTIALS) {
-      throw new Error("GOOGLE_CREDENTIALS environment variable is not set");
-    }
-    
-    if (!process.env.GOOGLE_TOKEN) {
-      throw new Error("GOOGLE_TOKEN environment variable is not set");
+    console.log("🔑 Carregando credenciais Google...");
+
+    if (!process.env.GOOGLE_CREDENTIALS || !process.env.GOOGLE_TOKEN) {
+      throw new Error("As variáveis GOOGLE_CREDENTIALS e GOOGLE_TOKEN são obrigatórias.");
     }
 
-    // Debug: Show first few characters to verify content
-    console.log("GOOGLE_CREDENTIALS starts with:", process.env.GOOGLE_CREDENTIALS.substring(0, 20));
-    console.log("GOOGLE_TOKEN starts with:", process.env.GOOGLE_TOKEN.substring(0, 20));
-
-    // Parse JSON with better error handling
     let credentials, token;
     
     try {
       credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-      console.log("✅ GOOGLE_CREDENTIALS parsed successfully");
-    } catch (parseError) {
-      console.error("❌ GOOGLE_CREDENTIALS content:", process.env.GOOGLE_CREDENTIALS);
-      throw new Error(`Invalid JSON in GOOGLE_CREDENTIALS: ${parseError.message}`);
+    } catch (e) {
+      throw new Error("GOOGLE_CREDENTIALS contém JSON inválido.");
     }
-    
+
     try {
       token = JSON.parse(process.env.GOOGLE_TOKEN);
-      console.log("✅ GOOGLE_TOKEN parsed successfully");
-    } catch (parseError) {
-      console.error("❌ GOOGLE_TOKEN content:", process.env.GOOGLE_TOKEN);
-      throw new Error(`Invalid JSON in GOOGLE_TOKEN: ${parseError.message}`);
+    } catch (e) {
+      throw new Error("GOOGLE_TOKEN contém JSON inválido.");
     }
 
-    // Validate credentials structure
-    if (!credentials.installed) {
-      throw new Error("GOOGLE_CREDENTIALS must have 'installed' property");
+    if (!credentials.installed || !credentials.installed.client_id || !credentials.installed.client_secret || !credentials.installed.redirect_uris) {
+      throw new Error("GOOGLE_CREDENTIALS está mal formatado.");
     }
-
-    const { client_secret, client_id, redirect_uris } = credentials.installed;
-    
-    if (!client_secret || !client_id || !redirect_uris) {
-      throw new Error("Missing required fields in GOOGLE_CREDENTIALS");
-    }
-
-    console.log("✅ Credentials structure validated");
-    console.log("Client ID:", client_id.substring(0, 20) + "...");
 
     const oAuth2Client = new google.auth.OAuth2(
-      client_id,
-      client_secret,
-      redirect_uris[0]
+      credentials.installed.client_id,
+      credentials.installed.client_secret,
+      credentials.installed.redirect_uris[0]
     );
-    
+
     oAuth2Client.setCredentials(token);
-    console.log("✅ Google credentials loaded successfully");
+    console.log("🔐 Google OAuth carregado com sucesso.");
     return oAuth2Client;
-    
   } catch (error) {
-    console.error("❌ Error loading credentials:", error.message);
+    console.error("❌ Erro nas credenciais Google:", error.message);
     throw error;
   }
 }
 
+// ✅ Verifica e envia e-mail
 async function verificarEmail() {
   try {
-    console.log("📧 Checking for new emails...");
-    
+    console.log("📧 Verificando e-mails...");
+
     const auth = loadCredentials();
     const gmail = google.gmail({ version: "v1", auth });
 
-    // Buscar até 10 e-mails não lidos do remetente a partir da data desejada
     const res = await gmail.users.messages.list({
       userId: "me",
       q: `from:${REMETENTE} is:unread after:2025/07/22`,
@@ -122,34 +98,33 @@ async function verificarEmail() {
     });
 
     const messages = res.data.messages || [];
-    
+
     if (messages.length === 0) {
-      console.log("📭 Nenhum novo e-mail não lido do remetente após 22/07/2025.");
+      console.log("📭 Nenhum novo e-mail não lido encontrado.");
       return;
     }
 
-    console.log(`📬 Found ${messages.length} unread emails`);
-
-    // Buscar detalhes das mensagens e ordenar por data
     const mensagensDetalhadas = await Promise.all(
       messages.map(async msg => {
         const full = await gmail.users.messages.get({ userId: "me", id: msg.id });
-        const internalDate = parseInt(full.data.internalDate, 10);
-        return { id: msg.id, data: full, timestamp: internalDate };
+        return {
+          id: msg.id,
+          data: full,
+          timestamp: parseInt(full.data.internalDate, 10),
+        };
       })
     );
 
     mensagensDetalhadas.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Pega o e-mail mais recente
     const mensagemRecente = mensagensDetalhadas[0];
+
     const fullMessage = mensagemRecente.data;
     const headers = fullMessage.data.payload.headers;
     const assunto = headers.find(h => h.name === "Subject")?.value || "(sem assunto)";
 
     let body = "";
     const parts = fullMessage.data.payload.parts;
-    
+
     if (parts && parts.length > 0) {
       for (const part of parts) {
         if (part.mimeType === "text/plain" && part.body?.data) {
@@ -157,7 +132,7 @@ async function verificarEmail() {
           break;
         } else if (part.mimeType === "text/html" && part.body?.data) {
           const htmlBody = Buffer.from(part.body.data, "base64").toString("utf-8");
-          body = htmlBody.replace(/<[^>]+>/g, ""); // remove HTML
+          body = htmlBody.replace(/<[^>]+>/g, "");
           break;
         }
       }
@@ -170,24 +145,22 @@ async function verificarEmail() {
       return;
     }
 
-    console.log(`📝 Processing email with subject: ${assunto}`);
+    console.log(`📝 E-mail recebido: ${assunto}`);
 
-    // Divide o corpo em partes de até 1000 caracteres
     const partes = body.match(/.{1,1000}/gs) || [];
-    
+
     for (let i = 0; i < partes.length; i++) {
       const texto = `📬 Novo e-mail de ${REMETENTE}\nAssunto: ${assunto}\n\nParte ${i + 1}:\n\n${partes[i]}`;
-      
+
       await client.messages.create({
         from: process.env.TWILIO_PHONE,
         to: process.env.DEST_PHONE,
         body: texto,
       });
-      
-      console.log(`✅ Parte ${i + 1} enviada com sucesso ao WhatsApp.`);
+
+      console.log(`✅ Parte ${i + 1} enviada ao WhatsApp.`);
     }
 
-    // Marca como lido para não repetir
     await gmail.users.messages.modify({
       userId: "me",
       id: mensagemRecente.id,
@@ -196,28 +169,25 @@ async function verificarEmail() {
       },
     });
 
-    console.log("✅ E-mail marcado como lido.\n");
-    
+    console.log("✅ E-mail marcado como lido.");
   } catch (error) {
-    console.error("❌ Erro ao verificar/enviar e-mail:", error.message);
-    
-    // More detailed error logging
-    if (error.response) {
-      console.error("API Response Error:", error.response.data);
+    console.error("❌ Erro ao processar e-mail:", error.message);
+    if (error.response?.data) {
+      console.error("API Response:", error.response.data);
     }
     if (error.code) {
-      console.error("Error Code:", error.code);
+      console.error("Código do erro:", error.code);
     }
   }
 }
 
-// Initial check
-console.log("🚀 Starting email monitoring service...");
+// ✅ Inicializa
+console.log("🚀 Serviço de monitoramento iniciado...");
 verificarEmail().then(() => {
-  console.log("📧 Initial email check completed");
+  console.log("📧 Primeira verificação concluída.");
 }).catch(error => {
-  console.error("❌ Initial check failed:", error.message);
+  console.error("❌ Falha na verificação inicial:", error.message);
 });
 
-// Verifica a cada 10 segundos
+// ✅ Repetição a cada 10 segundos
 setInterval(verificarEmail, 10000);
