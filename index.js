@@ -5,11 +5,17 @@ const twilio = require("twilio");
 // Instancia o cliente Twilio
 const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
-// Remetente desejado
-const REMETENTE = "priscilaroverssi01@gmail.com";
+// Remetente agora como variável de ambiente
+const REMETENTE = process.env.REMETENTE;
 
 // Carrega as credenciais a partir das variáveis de ambiente
 function loadCredentials() {
+  if (!process.env.GOOGLE_CREDENTIALS || !process.env.GOOGLE_TOKEN) {
+    throw new Error("❌ GOOGLE_CREDENTIALS ou GOOGLE_TOKEN não estão definidas.");
+  }
+
+  console.log("🔍 GOOGLE_CREDENTIALS carregado (50 chars):", process.env.GOOGLE_CREDENTIALS?.substring(0, 50));
+
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
   const token = JSON.parse(process.env.GOOGLE_TOKEN);
 
@@ -30,7 +36,6 @@ async function verificarEmail() {
     const auth = loadCredentials();
     const gmail = google.gmail({ version: "v1", auth });
 
-    // Buscar até 10 e-mails não lidos do remetente a partir da data desejada
     const res = await gmail.users.messages.list({
       userId: "me",
       q: `from:${REMETENTE} is:unread after:2025/07/22`,
@@ -44,7 +49,6 @@ async function verificarEmail() {
       return;
     }
 
-    // Buscar detalhes das mensagens e ordenar por data
     const mensagensDetalhadas = await Promise.all(
       messages.map(async msg => {
         const full = await gmail.users.messages.get({ userId: "me", id: msg.id });
@@ -54,8 +58,6 @@ async function verificarEmail() {
     );
 
     mensagensDetalhadas.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Pega o e-mail mais recente
     const mensagemRecente = mensagensDetalhadas[0];
     const fullMessage = mensagemRecente.data;
 
@@ -73,7 +75,7 @@ async function verificarEmail() {
           break;
         } else if (part.mimeType === "text/html" && part.body?.data) {
           const htmlBody = Buffer.from(part.body.data, "base64").toString("utf-8");
-          body = htmlBody.replace(/<[^>]+>/g, ""); // remove HTML
+          body = htmlBody.replace(/<[^>]+>/g, "");
           break;
         }
       }
@@ -86,7 +88,6 @@ async function verificarEmail() {
       return;
     }
 
-    // Divide o corpo em partes de até 1000 caracteres
     const partes = body.match(/.{1,1000}/gs) || [];
 
     for (let i = 0; i < partes.length; i++) {
@@ -101,7 +102,6 @@ async function verificarEmail() {
       console.log(`✅ Parte ${i + 1} enviada com sucesso ao WhatsApp.`);
     }
 
-    // Marca como lido para não repetir
     await gmail.users.messages.modify({
       userId: "me",
       id: mensagemRecente.id,
