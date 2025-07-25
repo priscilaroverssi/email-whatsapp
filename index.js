@@ -5,12 +5,18 @@ if (process.env.NODE_ENV !== "production") {
 
 const { google } = require("googleapis");
 const twilio = require("twilio");
+const cloudinary = require("cloudinary").v2;
+const fs = require("fs");
 
-// 🔍 Debug: verifique se o Railway está recebendo as variáveis
-console.log("🧪 TWILIO_SID:", process.env.TWILIO_SID ? "✅ SET" : "❌ NOT SET");
-console.log("🧪 NODE_ENV:", process.env.NODE_ENV);
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
-// ✅ Validação de variáveis obrigatórias
+console.log("🔍 TWILIO_SID:", process.env.TWILIO_SID ? "✅ SET" : "❌ NOT SET");
+console.log("🔍 NODE_ENV:", process.env.NODE_ENV);
+
 function validateEnvVars() {
   const required = [
     "TWILIO_SID",
@@ -19,6 +25,9 @@ function validateEnvVars() {
     "DEST_PHONE",
     "GOOGLE_CREDENTIALS",
     "GOOGLE_TOKEN",
+    "CLOUDINARY_CLOUD_NAME",
+    "CLOUDINARY_API_KEY",
+    "CLOUDINARY_API_SECRET",
   ];
 
   for (const envVar of required) {
@@ -28,7 +37,6 @@ function validateEnvVars() {
   }
 }
 
-// ✅ Inicialização do Twilio
 let client;
 try {
   validateEnvVars();
@@ -41,39 +49,12 @@ try {
 
 const REMETENTE = "priscilaroverssi01@gmail.com";
 
-// ✅ Função para carregar credenciais do Google
 function loadCredentials() {
   try {
     console.log("🔑 Carregando credenciais Google...");
 
-    if (!process.env.GOOGLE_CREDENTIALS || !process.env.GOOGLE_TOKEN) {
-      throw new Error(
-        "As variáveis GOOGLE_CREDENTIALS e GOOGLE_TOKEN são obrigatórias."
-      );
-    }
-
-    let credentials, token;
-
-    try {
-      credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-    } catch (e) {
-      throw new Error("GOOGLE_CREDENTIALS contém JSON inválido.");
-    }
-
-    try {
-      token = JSON.parse(process.env.GOOGLE_TOKEN);
-    } catch (e) {
-      throw new Error("GOOGLE_TOKEN contém JSON inválido.");
-    }
-
-    if (
-      !credentials.installed ||
-      !credentials.installed.client_id ||
-      !credentials.installed.client_secret ||
-      !credentials.installed.redirect_uris
-    ) {
-      throw new Error("GOOGLE_CREDENTIALS está mal formatado.");
-    }
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+    const token = JSON.parse(process.env.GOOGLE_TOKEN);
 
     const oAuth2Client = new google.auth.OAuth2(
       credentials.installed.client_id,
@@ -82,7 +63,6 @@ function loadCredentials() {
     );
 
     oAuth2Client.setCredentials(token);
-    console.log("🔐 Google OAuth carregado com sucesso.");
     return oAuth2Client;
   } catch (error) {
     console.error("❌ Erro nas credenciais Google:", error.message);
@@ -90,11 +70,26 @@ function loadCredentials() {
   }
 }
 
-// ✅ Verifica e envia e-mail
+async function uploadToCloudinary(filename, buffer) {
+  const tempPath = `/tmp/${filename}`;
+  fs.writeFileSync(tempPath, buffer);
+
+  try {
+    const result = await cloudinary.uploader.upload(tempPath, {
+      resource_type: "auto",
+      folder: "emails",
+    });
+    fs.unlinkSync(tempPath);
+    return result.secure_url;
+  } catch (err) {
+    console.error("Erro ao enviar para Cloudinary:", err.message);
+    return null;
+  }
+}
+
 async function verificarEmail() {
   try {
     console.log("📧 Verificando e-mails...");
-
     const auth = loadCredentials();
     const gmail = google.gmail({ version: "v1", auth });
 
@@ -105,118 +100,93 @@ async function verificarEmail() {
     });
 
     const messages = res.data.messages || [];
-
     if (messages.length === 0) {
-      console.log("📭 Nenhum novo e-mail não lido encontrado.");
+      console.log("📬 Nenhum novo e-mail não lido encontrado.");
       return;
     }
 
-    const mensagensDetalhadas = await Promise.all(
-      messages.map(async (msg) => {
-        const full = await gmail.users.messages.get({
-          userId: "me",
-          id: msg.id,
-        });
-        return {
-          id: msg.id,
-          data: full,
-          timestamp: parseInt(full.data.internalDate, 10),
-        };
-      })
-    );
+    const full = await gmail.users.messages.get({
+      userId: "me",
+      id: messages[0].id,
+    });
 
-    mensagensDetalhadas.sort((a, b) => b.timestamp - a.timestamp);
-    const mensagemRecente = mensagensDetalhadas[0];
+    const headers = full.data.payload.headers;
+    const assunto = headers.find((h) => h.name === "Subject")?.value || "(sem assunto)";
 
-    const fullMessage = mensagemRecente.data;
-    const headers = fullMessage.data.payload.headers;
-    const assunto =
-      headers.find((h) => h.name === "Subject")?.value || "(sem assunto)";
+    const decodeBase64 = (data) => Buffer.from(data, "base64").toString("utf-8");
 
-    function decodeBase64(data) {
-      return Buffer.from(data, "base64").toString("utf-8");
-    }
-
-    function extractBodyFromPayload(payload) {
-      if (payload.body?.data) {
-        return decodeBase64(payload.body.data);
-      }
-
-      if (payload.parts && Array.isArray(payload.parts)) {
+    function extractBody(payload) {
+      if (payload.body?.data) return decodeBase64(payload.body.data);
+      if (payload.parts) {
         for (const part of payload.parts) {
-          // Caso tenha subpartes
           if (part.parts) {
-            const nested = extractBodyFromPayload(part);
+            const nested = extractBody(part);
             if (nested) return nested;
           }
-
-          if (part.mimeType === "text/plain" && part.body?.data) {
-            return decodeBase64(part.body.data);
-          } else if (part.mimeType === "text/html" && part.body?.data) {
-            const html = decodeBase64(part.body.data);
-            return html.replace(/<[^>]+>/g, ""); // remove tags HTML
+          if ((part.mimeType === "text/plain" || part.mimeType === "text/html") && part.body?.data) {
+            return decodeBase64(part.body.data).replace(/<[^>]+>/g, "");
           }
         }
       }
-
       return "";
     }
 
-    let body = extractBodyFromPayload(fullMessage.data.payload);
-    console.log(
-      "🕵️ Raw Payload:",
-      JSON.stringify(fullMessage.data.payload, null, 2)
-    );
-
-    // Remove rodapé de aviso de confidencialidade (pt e en)
-    body = body.replace(/Atenção:[\s\S]*$/i, "").trim();
-    body = body.replace(/Warning:[\s\S]*$/i, "").trim();
+    let body = extractBody(full.data.payload)
+      .replace(/Atenção:[\s\S]*$/i, "")
+      .replace(/Warning:[\s\S]*$/i, "").trim();
 
     console.log(`📝 E-mail recebido: ${assunto}`);
 
     const partes = body.match(/.{1,1000}/gs) || [];
-
     for (let i = 0; i < partes.length; i++) {
-      const texto = partes[i];
-
       await client.messages.create({
         from: process.env.TWILIO_PHONE,
         to: process.env.DEST_PHONE,
-        body: texto,
+        body: partes[i],
+      });
+    }
+
+    const attachments = [];
+    const parts = full.data.payload.parts || [];
+    for (const part of parts) {
+      if (part.filename && part.body?.attachmentId) {
+        attachments.push({ filename: part.filename, id: part.body.attachmentId });
+      }
+    }
+
+    for (const att of attachments) {
+      const attachment = await gmail.users.messages.attachments.get({
+        userId: "me",
+        messageId: messages[0].id,
+        id: att.id,
       });
 
-      console.log(`✅ Parte ${i + 1} enviada ao WhatsApp.`);
+      const buffer = Buffer.from(attachment.data.data, "base64");
+      const url = await uploadToCloudinary(att.filename, buffer);
+
+      if (url) {
+        await client.messages.create({
+          from: process.env.TWILIO_PHONE,
+          to: process.env.DEST_PHONE,
+          body: `📷 Anexo: ${att.filename}`,
+          mediaUrl: [url],
+        });
+        console.log(`✅ Anexo enviado: ${att.filename}`);
+      }
     }
 
     await gmail.users.messages.modify({
       userId: "me",
-      id: mensagemRecente.id,
-      requestBody: {
-        removeLabelIds: ["UNREAD"],
-      },
+      id: messages[0].id,
+      requestBody: { removeLabelIds: ["UNREAD"] },
     });
-
-    console.log("✅ E-mail marcado como lido.");
   } catch (error) {
     console.error("❌ Erro ao processar e-mail:", error.message);
-    if (error.response?.data) {
-      console.error("API Response:", error.response.data);
-    }
-    if (error.code) {
-      console.error("Código do erro:", error.code);
-    }
+    if (error.response?.data) console.error("API Response:", error.response.data);
+    if (error.code) console.error("Código do erro:", error.code);
   }
 }
 
-// ✅ Inicializa
 console.log("🚀 Serviço de monitoramento iniciado...");
-verificarEmail()
-  .then(() => {
-    console.log("📧 Primeira verificação concluída.");
-  })
-  .catch((error) => {
-    console.error("❌ Falha na verificação inicial:", error.message);
-  });
-
-// ✅ Repetição a cada 10 segundos
+verificarEmail().then(() => console.log("📧 Primeira verificação concluída."));
 setInterval(verificarEmail, 10000);
