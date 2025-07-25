@@ -39,7 +39,7 @@ validateEnvVars();
 const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 console.log("✅ Twilio configurado");
 
-const REMETENTE = "priscilaroverssi01@gmail.com";
+const REMETENTE = "pcrpaintshop@hyundai-brasil.com";
 
 function loadCredentials() {
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
