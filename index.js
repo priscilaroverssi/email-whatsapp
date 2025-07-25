@@ -1,5 +1,5 @@
 // Carrega variáveis locais apenas em ambiente de desenvolvimento
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
 }
 
@@ -13,14 +13,14 @@ console.log("🧪 NODE_ENV:", process.env.NODE_ENV);
 // ✅ Validação de variáveis obrigatórias
 function validateEnvVars() {
   const required = [
-    'TWILIO_SID',
-    'TWILIO_AUTH_TOKEN', 
-    'TWILIO_PHONE',
-    'DEST_PHONE',
-    'GOOGLE_CREDENTIALS',
-    'GOOGLE_TOKEN'
+    "TWILIO_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_PHONE",
+    "DEST_PHONE",
+    "GOOGLE_CREDENTIALS",
+    "GOOGLE_TOKEN",
   ];
-  
+
   for (const envVar of required) {
     if (!process.env[envVar]) {
       throw new Error(`Environment variable ${envVar} is not set`);
@@ -39,7 +39,7 @@ try {
   process.exit(1);
 }
 
-const REMETENTE = "pcrpaintshop@hyundai-brasil.com";
+const REMETENTE = "priscilaroverssi01@gmail.com";
 
 // ✅ Função para carregar credenciais do Google
 function loadCredentials() {
@@ -47,11 +47,13 @@ function loadCredentials() {
     console.log("🔑 Carregando credenciais Google...");
 
     if (!process.env.GOOGLE_CREDENTIALS || !process.env.GOOGLE_TOKEN) {
-      throw new Error("As variáveis GOOGLE_CREDENTIALS e GOOGLE_TOKEN são obrigatórias.");
+      throw new Error(
+        "As variáveis GOOGLE_CREDENTIALS e GOOGLE_TOKEN são obrigatórias."
+      );
     }
 
     let credentials, token;
-    
+
     try {
       credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
     } catch (e) {
@@ -64,7 +66,12 @@ function loadCredentials() {
       throw new Error("GOOGLE_TOKEN contém JSON inválido.");
     }
 
-    if (!credentials.installed || !credentials.installed.client_id || !credentials.installed.client_secret || !credentials.installed.redirect_uris) {
+    if (
+      !credentials.installed ||
+      !credentials.installed.client_id ||
+      !credentials.installed.client_secret ||
+      !credentials.installed.redirect_uris
+    ) {
       throw new Error("GOOGLE_CREDENTIALS está mal formatado.");
     }
 
@@ -105,8 +112,11 @@ async function verificarEmail() {
     }
 
     const mensagensDetalhadas = await Promise.all(
-      messages.map(async msg => {
-        const full = await gmail.users.messages.get({ userId: "me", id: msg.id });
+      messages.map(async (msg) => {
+        const full = await gmail.users.messages.get({
+          userId: "me",
+          id: msg.id,
+        });
         return {
           id: msg.id,
           data: full,
@@ -120,35 +130,47 @@ async function verificarEmail() {
 
     const fullMessage = mensagemRecente.data;
     const headers = fullMessage.data.payload.headers;
-    const assunto = headers.find(h => h.name === "Subject")?.value || "(sem assunto)";
+    const assunto =
+      headers.find((h) => h.name === "Subject")?.value || "(sem assunto)";
 
-    let body = "";
-    const parts = fullMessage.data.payload.parts;
+    function decodeBase64(data) {
+      return Buffer.from(data, "base64").toString("utf-8");
+    }
 
-    if (parts && parts.length > 0) {
-      for (const part of parts) {
-        if (part.mimeType === "text/plain" && part.body?.data) {
-          body = Buffer.from(part.body.data, "base64").toString("utf-8");
-          break;
-        } else if (part.mimeType === "text/html" && part.body?.data) {
-          const htmlBody = Buffer.from(part.body.data, "base64").toString("utf-8");
-          body = htmlBody.replace(/<[^>]+>/g, "");
-          break;
+    function extractBodyFromPayload(payload) {
+      if (payload.body?.data) {
+        return decodeBase64(payload.body.data);
+      }
+
+      if (payload.parts && Array.isArray(payload.parts)) {
+        for (const part of payload.parts) {
+          // Caso tenha subpartes
+          if (part.parts) {
+            const nested = extractBodyFromPayload(part);
+            if (nested) return nested;
+          }
+
+          if (part.mimeType === "text/plain" && part.body?.data) {
+            return decodeBase64(part.body.data);
+          } else if (part.mimeType === "text/html" && part.body?.data) {
+            const html = decodeBase64(part.body.data);
+            return html.replace(/<[^>]+>/g, ""); // remove tags HTML
+          }
         }
       }
-    } else if (fullMessage.data.payload.body?.data) {
-      body = Buffer.from(fullMessage.data.payload.body.data, "base64").toString("utf-8");
+
+      return "";
     }
 
-    if (!body) {
-      console.log("⚠️ Corpo do e-mail vazio.");
-      return;
-    }
+    let body = extractBodyFromPayload(fullMessage.data.payload);
+    console.log(
+      "🕵️ Raw Payload:",
+      JSON.stringify(fullMessage.data.payload, null, 2)
+    );
 
     // Remove rodapé de aviso de confidencialidade (pt e en)
     body = body.replace(/Atenção:[\s\S]*$/i, "").trim();
     body = body.replace(/Warning:[\s\S]*$/i, "").trim();
-
 
     console.log(`📝 E-mail recebido: ${assunto}`);
 
@@ -188,11 +210,13 @@ async function verificarEmail() {
 
 // ✅ Inicializa
 console.log("🚀 Serviço de monitoramento iniciado...");
-verificarEmail().then(() => {
-  console.log("📧 Primeira verificação concluída.");
-}).catch(error => {
-  console.error("❌ Falha na verificação inicial:", error.message);
-});
+verificarEmail()
+  .then(() => {
+    console.log("📧 Primeira verificação concluída.");
+  })
+  .catch((error) => {
+    console.error("❌ Falha na verificação inicial:", error.message);
+  });
 
 // ✅ Repetição a cada 10 segundos
 setInterval(verificarEmail, 10000);
