@@ -100,18 +100,46 @@ function extractBody(payload) {
 function isWithinActiveHours() {
   const now = new Date();
   const hour = now.getHours();
-
-  // Retorna true se estiver entre 05h (5) e 18h (18), ou seja, período ativo
-  // Se estiver entre 18h e 23h ou 0h e 4h, retorna false (hibernação)
+  // Ativo entre 05h (inclusive) e 18h (exclusive)
   return hour >= 5 && hour < 18;
 }
 
-async function verificarEmail() {
-   if (!isWithinActiveHours()) {
-    console.log("⏸️ Fora do horário ativo (18h-05h). Ignorando verificação.");
-    return;
-  }
+let interval = null;
+let isHibernating = false;
 
+function startMonitoring() {
+  if (!interval) {
+    console.log("▶️ Iniciando verificações a cada 1 minuto...");
+    interval = setInterval(verificarEmail, 60000);
+    isHibernating = false;
+  }
+}
+
+function stopMonitoring() {
+  if (interval) {
+    clearInterval(interval);
+    interval = null;
+  }
+}
+
+function checkActiveHours() {
+  if (isWithinActiveHours()) {
+    if (isHibernating) {
+      console.log("▶️ Voltando ao horário ativo. Retomando verificações.");
+      startMonitoring();
+    } else if (!interval) {
+      startMonitoring();
+    }
+  } else {
+    if (!isHibernating) {
+      console.log("⏸️ Fora do horário ativo. Entrando em hibernação.");
+      stopMonitoring();
+      isHibernating = true;
+    }
+  }
+}
+
+async function verificarEmail() {
   try {
     const auth = loadCredentials();
     const gmail = google.gmail({ version: "v1", auth });
@@ -186,12 +214,13 @@ async function verificarEmail() {
       id: messages[0].id,
       requestBody: { removeLabelIds: ["UNREAD"] },
     });
-
   } catch (err) {
     console.error("❌ Erro ao verificar e-mail:", err.message);
   }
 }
 
 console.log("🚀 Monitoramento iniciado...");
-verificarEmail().then(() => console.log("✅ Primeira verificação completa"));
-setInterval(verificarEmail, 60000); // A cada 1 minuto
+checkActiveHours();
+
+// Verifica a cada 1 minuto se deve iniciar/parar monitoramento
+setInterval(checkActiveHours, 60000);
