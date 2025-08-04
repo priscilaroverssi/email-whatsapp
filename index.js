@@ -77,15 +77,26 @@ function decodeBase64(data) {
 }
 
 function extractBody(payload) {
-  if (payload.body?.data) return decodeBase64(payload.body.data);
+  if (payload.mimeType?.startsWith("image/")) return ""; // Ignora imagens
+
+  if (payload.body?.data && payload.mimeType === "text/plain") {
+    return decodeBase64(payload.body.data);
+  }
+
   if (payload.parts) {
     for (const part of payload.parts) {
+      // Ignora partes com Content-ID (geralmente imagens embutidas)
+      const isCid = part.headers?.some(h => h.name === "Content-ID");
+      if (isCid || part.mimeType?.startsWith("image/")) continue;
+
       const result = extractBody(part);
       if (result) return result.replace(/<[^>]+>/g, "");
     }
   }
+
   return "";
 }
+
 
 async function verificarEmail() {
   try {
