@@ -97,8 +97,21 @@ function extractBody(payload) {
   return "";
 }
 
+function isWithinActiveHours() {
+  const now = new Date();
+  const hour = now.getHours();
+
+  // Retorna true se estiver entre 05h (5) e 18h (18), ou seja, período ativo
+  // Se estiver entre 18h e 23h ou 0h e 4h, retorna false (hibernação)
+  return hour >= 5 && hour < 18;
+}
 
 async function verificarEmail() {
+   if (!isWithinActiveHours()) {
+    console.log("⏸️ Fora do horário ativo (18h-05h). Ignorando verificação.");
+    return;
+  }
+
   try {
     const auth = loadCredentials();
     const gmail = google.gmail({ version: "v1", auth });
@@ -181,4 +194,4 @@ async function verificarEmail() {
 
 console.log("🚀 Monitoramento iniciado...");
 verificarEmail().then(() => console.log("✅ Primeira verificação completa"));
-setInterval(verificarEmail, 10000); // A cada 10s
+setInterval(verificarEmail, 60000); // A cada 1 minuto
