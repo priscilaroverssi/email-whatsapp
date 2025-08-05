@@ -224,3 +224,9 @@ checkActiveHours();
 
 // Verifica a cada 1 minuto se deve iniciar/parar monitoramento
 setInterval(checkActiveHours, 60000);
+
+// Manter um servidor web "vivo" para o Render acreditar que é um web service
+require("http").createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("🚀 Script rodando no Render sem hibernação!\n");
+}).listen(process.env.PORT || 3000);
