@@ -167,6 +167,7 @@ async function verificarEmail() {
     let body = extractBody(message.data.payload)
       .replace(/Atenção:[\s\S]*$/i, "")
       .replace(/Warning:[\s\S]*$/i, "")
+      .replace(/\[cid:[^\]]+\]/g, "") // ⬅️ ESSA LINHA REMOVE O [cid:...] DO TEXTO
       .trim();
 
     console.log(`📨 Assunto: ${subject}`);
