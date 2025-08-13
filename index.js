@@ -204,7 +204,6 @@ async function verificarEmail() {
         await client.messages.create({
           from: process.env.TWILIO_PHONE,
           to: process.env.DEST_PHONE,
-          body: `📎 Anexo: ${att.filename}`,
           mediaUrl: [url],
         });
         console.log(`✅ Anexo enviado: ${att.filename}`);
