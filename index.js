@@ -97,47 +97,16 @@ function extractBody(payload) {
   return "";
 }
 
-function isWithinActiveHours() {
-  const now = new Date();
-  const hour = now.getHours();
-  // Ativo entre 05h (inclusive) e 18h (exclusive)
-  return hour >= 5 && hour < 18;
-}
-
 let interval = null;
-let isHibernating = false;
 
 function startMonitoring() {
   if (!interval) {
     console.log("▶️ Iniciando verificações a cada 1 minuto...");
     interval = setInterval(verificarEmail, 60000);
-    isHibernating = false;
   }
 }
 
-function stopMonitoring() {
-  if (interval) {
-    clearInterval(interval);
-    interval = null;
-  }
-}
-
-function checkActiveHours() {
-  if (isWithinActiveHours()) {
-    if (isHibernating) {
-      console.log("▶️ Voltando ao horário ativo. Retomando verificações.");
-      startMonitoring();
-    } else if (!interval) {
-      startMonitoring();
-    }
-  } else {
-    if (!isHibernating) {
-      console.log("⏸️ Fora do horário ativo. Entrando em hibernação.");
-      stopMonitoring();
-      isHibernating = true;
-    }
-  }
-}
+startMonitoring();
 
 async function verificarEmail() {
   try {
@@ -221,12 +190,8 @@ async function verificarEmail() {
 }
 
 console.log("🚀 Monitoramento iniciado...");
-checkActiveHours();
 
-// Verifica a cada 1 minuto se deve iniciar/parar monitoramento
-setInterval(checkActiveHours, 60000);
-
-// Manter um servidor web "vivo" para o Render acreditar que é um web service
+// Mantém um servidor web ativo para o Render acreditar que é um web service
 require("http").createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("🚀 Script rodando no Render sem hibernação!\n");
